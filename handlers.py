@@ -1,13 +1,13 @@
 import dataclasses
-import decimal
-import re
 import logging
-import requests
 import os
-from aiogram.types import Message
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from database import is_transaction_processed, save_transaction
+import requests
+from aiogram.types import Message
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from database import is_transaction_processed, save_transaction, Transaction, Item, async_session
+from utils import parse_message, get_analytics, get_items_report
 
 # URL для отправки данных в сторонний сервис
 SERVICE_API_URL = f"{os.getenv('WEB_API_URL')}/api/{os.getenv('WEB_API_TOKEN')}"
@@ -15,50 +15,6 @@ logger = logging.getLogger(__name__)
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
-
-
-@dataclasses.dataclass
-class Item:
-	name: str
-	amount: int
-	unit_price: float
-
-
-@dataclasses.dataclass
-class ParsedMessageResult:
-	items: list[Item]
-	roblox_username: str
-	transaction_id: str
-
-
-# Функция для парсинга сообщения
-def parse_message(text: str) -> ParsedMessageResult | None:
-	# Регулярные выражения для извлечения данных
-	item_pattern = r"(\d+)\. ([\w\s]+): (\d+) \((\d+) x (\d+)\)"
-	roblox_pattern = r"Ваш_ник_в_ROBLOX: (\w+)"
-	transaction_id_pattern = r"Transaction ID: (\d+)"
-
-	items = re.findall(item_pattern, text)
-	roblox_name = re.search(roblox_pattern, text)
-	transaction_id = re.search(transaction_id_pattern, text)
-	logger.info(f'Transaction id: {transaction_id}, roblox_username: {roblox_name}')
-
-	if not roblox_name or not transaction_id:
-		return None  # Если не нашли обязательные данные
-
-	parsed_items = []
-	for item in items:
-		parsed_items.append(Item(
-			name=item[1],  # Название товара
-			amount=int(item[3]),  # Количество заказанных товаров
-			unit_price=float(item[4])
-		))
-
-	return ParsedMessageResult(
-		items=parsed_items,
-		roblox_username=roblox_name.group(1),
-		transaction_id=transaction_id.group(1)
-	)
 
 
 # Функция для отправки данных в сторонний сервис
@@ -74,24 +30,81 @@ def send_to_service(data):
 
 
 # Обработчик сообщений
-async def handle_message(message: Message, session: AsyncSession):
+async def handle_message(message: Message, session: async_sessionmaker):
 	# Парсим сообщение
 	parsed_data = parse_message(message.text)
 	logger.info("Handling message")
 
 	logger.info(f"Parsed data: {parsed_data}")
-	if parsed_data:
-		transaction_id = parsed_data.transaction_id
-		logger.info(f"Handling message for {transaction_id}")
-		# Проверяем, был ли обработан данный transaction_id
+	if not parsed_data:
+		return
+	transaction_id = parsed_data.transaction_id
+	logger.info(f"Handling message for {transaction_id}")
+	# Проверяем, был ли обработан данный transaction_id
 
-		if not await is_transaction_processed(session, transaction_id):
-			logging.info(f"Processing new transaction ID: {transaction_id}")
+	if await is_transaction_processed(session, transaction_id):
+		logger.warning("Transaction is already processed")
+		return
+	logging.info(f"Processing new transaction ID: {transaction_id}")
 
-			# Отправляем данные в сторонний сервис
-			result = send_to_service(dataclasses.asdict(parsed_data))
-			if result:
-				logging.info(f"Successfully sent data to service: {result}")
+	# Отправляем данные в сторонний сервис
+	result = send_to_service(dataclasses.asdict(parsed_data))
+	if not result:
+		await message.reply("Невозможно связаться с сервисом бота")
+		return
+	logging.info(f"Successfully sent data to service: {result}")
 
-				# Сохраняем транзакцию как обработанную
-				await save_transaction(session, transaction_id)
+	transaction = Transaction(
+		transaction_id=transaction_id,
+		roblox_name=parsed_data.roblox_username,
+		total_price=parsed_data.total_price,
+	)
+	items = []
+
+	for item in parsed_data.items:
+		items.append(
+			Item(
+				transaction_id=transaction_id,
+				amount=item.amount,
+				item_name=item.name,
+				unit_price=item.unit_price,
+			)
+		)
+
+	transaction.items.extend(items)
+
+	# Сохраняем транзакцию как обработанную
+	await save_transaction(session, transaction)
+
+	await message.reply(f"Транзакция обработана успешна! id: {transaction.id}, tx_id: {transaction_id}")
+
+
+async def send_analytics(message: Message):
+	async with async_session() as session:
+		analytics = await get_analytics(session)
+
+		await message.answer(
+			f"Аналитика за последнюю неделю:\n"
+			f"Транзакций: {analytics['week_transactions']}\n"
+			f"Потрачено: {analytics['week_spent']} RUB\n\n"
+			f"Аналитика за последний месяц:\n"
+			f"Транзакций: {analytics['month_transactions']}\n"
+			f"Потрачено: {analytics['month_spent']} RUB\n\n"
+			f"Аналитика за всё время:\n"
+			f"Транзакций: {analytics['total_transactions']}\n"
+			f"Потрачено: {analytics['total_spent']} RUB"
+		)
+
+
+async def send_items_report(message: Message):
+	async with async_session() as session:
+		items_report = await get_items_report(session)
+
+		# Формирование сообщения
+		report_message = "Отчёт о предметах:\n"
+		if len(items_report) == 0:
+			report_message += "Не было транзакции, или ошибка в подсчете"
+		for item_name, total_quantity in items_report:
+			report_message += f"{item_name}: {total_quantity} шт.\n"
+
+		await message.answer(report_message)

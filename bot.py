@@ -1,4 +1,4 @@
-
+from aiogram.filters import Command
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,9 +8,9 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
+from aiogram.types import Message, BotCommand
 from database import async_session, create_tables
-from handlers import handle_message
+from handlers import handle_message, send_analytics, send_items_report
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
@@ -50,9 +50,17 @@ async def main():
 		return await handle_message(msg, async_session)
 
 	# Регистрация хэндлера для текстовых сообщений
+	dp.message.register(send_analytics, Command('analytics'))
+	dp.message.register(send_items_report, Command('items_report'))
 	dp.message.register(_temp_handle_message, F.text)
 
 	# Запуск поллинга
+	await bot.set_my_commands(
+		[
+			BotCommand(command="analytics", description="Получить аналитику"),
+			BotCommand(command="items_report", description="Получить аналитику по предметам"),
+		]
+	)
 
 	await dp.start_polling(bot)
 
