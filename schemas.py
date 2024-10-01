@@ -1,4 +1,5 @@
 import dataclasses
+from enum import Enum
 
 
 @dataclasses.dataclass
@@ -14,3 +15,9 @@ class ParsedMessageResult:
 	roblox_username: str
 	transaction_id: str
 	total_price: float
+
+
+class TransactionStatus(Enum):
+	sent = "sent"
+	completed = "completed"
+	failed = "failed"

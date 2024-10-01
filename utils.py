@@ -3,6 +3,7 @@ import re
 from datetime import timedelta, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import joinedload
 
 from database import Transaction, Item as ItemEntity
 from schemas import ParsedMessageResult, Item
@@ -63,11 +64,44 @@ async def get_items_report(session):
 	return items_report.all()
 
 
+async def get_recent_transactions(session, start: int = 0, limit: int = 10):
+	# Получение транзакций с заданным смещением (start) и лимитом (limit)
+	query = (
+		select(Transaction)
+		.options(joinedload(Transaction.items))  # Загрузка связанных предметов
+		.order_by(Transaction.timestamp.desc())  # Сортировка по времени
+		.offset(start)  # Смещение от начала
+		.limit(limit)  # Лимит на количество транзакций
+	)
+
+	result = await session.execute(query)
+	transactions = result.scalars().unique().all()
+
+	return transactions
+
+
+async def format_recent_transactions(transactions):
+	# Формируем сообщение о последних транзакциях
+	message = "Последние транзакции:\n"
+
+	for transaction in transactions:
+		message += f"\nТранзакция ID: {transaction.transaction_id}\n"
+		message += f"ROBLOX имя: {transaction.roblox_name}\n"
+		message += f"Общая сумма: {transaction.total_price} RUB\n"
+		message += f"Дата: {transaction.timestamp}\n"
+		message += "Предметы:\n"
+
+		for item in transaction.items:
+			message += f"  - {item.item_name}: {item.amount} шт. по {item.unit_price} RUB (Итого: {item.total_price} RUB)\n"
+
+	return message
+
+
 def parse_message(text: str) -> ParsedMessageResult | None:
 	# Регулярные выражения для извлечения данных
 	item_pattern = r"(\d+)\. ([\w\s]+): (\d+) \((\d+) x (\d+)\)"
 	roblox_pattern = r"Ваш_ник_в_ROBLOX: (\w+)"
-	transaction_id_pattern = r"Transaction ID: (\d+)"
+	transaction_id_pattern = r"Transaction ID: (\d+):(\d+)"
 	total_price_pattern = r"Payment Amount: (\d+)"
 
 	items = re.findall(item_pattern, text)
@@ -94,6 +128,6 @@ def parse_message(text: str) -> ParsedMessageResult | None:
 	return ParsedMessageResult(
 		items=parsed_items,
 		roblox_username=roblox_name.group(1),
-		transaction_id=transaction_id.group(1),
+		transaction_id=transaction_id.group(2),
 		total_price=total_price,
 	)

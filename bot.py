@@ -10,7 +10,7 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, BotCommand
 from database import async_session, create_tables
-from handlers import handle_message, send_analytics, send_items_report
+from handlers import handle_message, send_analytics, send_items_report, recent_transactions_handler
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +52,7 @@ async def main():
 	# Регистрация хэндлера для текстовых сообщений
 	dp.message.register(send_analytics, Command('analytics'))
 	dp.message.register(send_items_report, Command('items_report'))
+	dp.message.register(recent_transactions_handler, Command("recents"))
 	dp.message.register(_temp_handle_message, F.text)
 
 	# Запуск поллинга
@@ -59,6 +60,7 @@ async def main():
 		[
 			BotCommand(command="analytics", description="Получить аналитику"),
 			BotCommand(command="items_report", description="Получить аналитику по предметам"),
+			BotCommand(command="recents", description="Недавние транзакции, пример: /recents 0 10 ")
 		]
 	)
 

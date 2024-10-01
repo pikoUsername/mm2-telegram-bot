@@ -7,7 +7,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from database import is_transaction_processed, save_transaction, Transaction, Item, async_session
-from utils import parse_message, get_analytics, get_items_report
+from utils import parse_message, get_analytics, get_items_report, get_recent_transactions, format_recent_transactions
 
 # URL для отправки данных в сторонний сервис
 SERVICE_API_URL = f"{os.getenv('WEB_API_URL')}/api/{os.getenv('WEB_API_TOKEN')}"
@@ -94,6 +94,46 @@ async def send_analytics(message: Message):
 			f"Транзакций: {analytics['total_transactions']}\n"
 			f"Потрачено: {analytics['total_spent']} RUB"
 		)
+
+
+async def recent_transactions_handler(message: Message):
+	# Получаем аргументы команды (если они есть)
+	args = message.text.split(" ")
+	args.remove(args[0])
+
+	try:
+		# Параметры по умолчанию
+		start = 0
+		limit = 10
+
+		if len(args) == 1:
+			# Если указан только лимит
+			limit = int(args[0])
+		elif len(args) == 2:
+			# Если указаны начальная позиция и лимит
+			start = int(args[0])
+			limit = int(args[1])
+
+		# Если указаны некорректные значения
+		if limit <= 0 or start < 0:
+			await message.answer("Ошибка: значения должны быть положительными числами.")
+			return
+
+	except ValueError:
+		# Если произошла ошибка при преобразовании аргументов
+		await message.answer("Ошибка: некорректный формат аргументов. Используйте /recents [start] [limit].")
+		return
+
+	async with async_session() as session:
+		# Получаем последние транзакции с учетом смещения
+		transactions = await get_recent_transactions(session, start=start, limit=limit)
+
+		if transactions:
+			# Формируем сообщение
+			formatted_message = await format_recent_transactions(transactions)
+			await message.answer(formatted_message)
+		else:
+			await message.answer("Нет данных о последних транзакциях.")
 
 
 async def send_items_report(message: Message):

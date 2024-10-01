@@ -5,6 +5,8 @@ from sqlalchemy import Column, Integer, String, select, Float, DateTime, Foreign
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, Mapped
 
+from schemas import TransactionStatus
+
 # Путь к базе данных
 DATABASE_URL = "sqlite+aiosqlite:///transactions.db"
 
@@ -34,6 +36,7 @@ class Transaction(Base):
     transaction_id = Column(String, unique=True, nullable=False)
     roblox_name = Column(String)
     total_price = Column(Float)  # Общая стоимость
+    # status = Column(String, default=TransactionStatus.sent, nullable=True)
     items: Mapped[list[Item]] = relationship("Item")
     timestamp = Column(DateTime, default=datetime.utcnow)  # Время транзакции
 
