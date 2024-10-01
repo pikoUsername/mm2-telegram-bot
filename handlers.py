@@ -104,7 +104,7 @@ async def send_items_report(message: Message):
 		report_message = "Отчёт о предметах:\n"
 		if len(items_report) == 0:
 			report_message += "Не было транзакции, или ошибка в подсчете"
-		for item_name, total_quantity in items_report:
+		for item_name, total_quantity, total_sum in items_report:
 			report_message += f"{item_name}: {total_quantity} шт.\n"
 
 		await message.answer(report_message)
