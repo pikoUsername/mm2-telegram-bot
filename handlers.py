@@ -76,7 +76,7 @@ async def handle_message(message: Message, session: async_sessionmaker):
 	# Сохраняем транзакцию как обработанную
 	await save_transaction(session, transaction)
 
-	await message.reply(f"Транзакция обработана успешна! id: {transaction.id}, tx_id: {transaction_id}")
+	await message.reply(f"Транзакция была отправлена в очередь. id: {transaction.id}, tx_id: {transaction_id}")
 
 
 async def send_analytics(message: Message):

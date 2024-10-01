@@ -6,7 +6,7 @@ authors = ["pikoUsername <galymzhan.amantaj@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.9"
 aiogram = "^3.13.1"
 requests = "^2.32.3"
 python-dotenv = "^1.0.1"
