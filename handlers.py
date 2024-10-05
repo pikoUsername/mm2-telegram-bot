@@ -33,6 +33,9 @@ def send_to_service(data):
 async def handle_message(message: Message, session: async_sessionmaker):
 	# Парсим сообщение
 	parsed_data = parse_message(message.text)
+	if len(parsed_data.items) == 0:
+		logger.warning("Not found items in parsed message")
+		return
 	logger.info("Handling message")
 
 	logger.info(f"Parsed data: {parsed_data}")
