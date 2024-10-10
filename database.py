@@ -41,6 +41,25 @@ class Transaction(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)  # Время транзакции
 
 
+class Set(Base):
+    __tablename__ = "sets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    set_name = Column(String, unique=True, nullable=False)
+    items: Mapped[list["SetItem"]] = relationship("SetItem", back_populates="set")
+
+
+class SetItem(Base):
+    __tablename__ = "set_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    set_id = Column(ForeignKey('sets.id'))
+    item_name = Column(String)
+    amount = Column(Integer)  # Количество предметов в сете
+
+    set: Mapped["Set"] = relationship("Set", back_populates="items")
+
+
 # Инициализация движка базы данных
 engine = create_async_engine(DATABASE_URL, echo=False)
 # Инициализация сессий

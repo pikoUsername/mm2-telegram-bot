@@ -3,9 +3,10 @@ import re
 from datetime import timedelta, datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from database import Transaction, Item as ItemEntity
+from database import Transaction, Item as ItemEntity, Set, SetItem
 from schemas import ParsedMessageResult, Item
 
 
@@ -80,6 +81,12 @@ async def get_recent_transactions(session, start: int = 0, limit: int = 10):
 	return transactions
 
 
+async def find_set_by_name(session, set_name: str) -> Set | None:
+	# Поиск сета по названию
+	result = await session.execute(select(Set).where(Set.set_name == set_name))
+	return result.scalars().first()
+
+
 async def format_recent_transactions(transactions):
 	# Формируем сообщение о последних транзакциях
 	message = "Последние транзакции:\n"
@@ -131,3 +138,44 @@ def parse_message(text: str) -> ParsedMessageResult | None:
 		transaction_id=transaction_id.group(2),
 		total_price=total_price,
 	)
+
+
+async def add_set_command(session: AsyncSession, message: str) -> str:
+	# Регулярное выражение для парсинга команды
+	set_pattern = r"/add_set ([\w\s]+) \(([\w\s]+) x(\d+)\)(?:; \(([\w\s]+) x(\d+)\))*"
+	match = re.match(set_pattern, message)
+
+	if not match:
+		return "Неверный формат команды. Пример: /add_set Blue set (Red seer x1); (Fire fox x2)"
+
+	set_name = match.group(1)
+	item_1_name = match.group(2)
+	item_1_amount = int(match.group(3))
+
+	# Проверяем, есть ли второй предмет (он необязателен)
+	item_2_name = match.group(4) if match.group(4) else None
+	item_2_amount = int(match.group(5)) if match.group(5) else None
+
+	# Проверка: существует ли сет с таким названием
+	existing_set = await session.execute(select(Set).where(Set.set_name == set_name))
+	existing_set = existing_set.scalars().first()
+
+	if existing_set:
+		return f"Сет с названием '{set_name}' уже существует."
+
+	# Создаем новый сет
+	new_set = Set(set_name=set_name)
+
+	# Добавляем предметы в сет
+	set_items = [SetItem(item_name=item_1_name, amount=item_1_amount, set=new_set)]
+
+	if item_2_name:
+		set_items.append(SetItem(item_name=item_2_name, amount=item_2_amount, set=new_set))
+
+	# Добавляем сет и его предметы в базу
+	session.add(new_set)
+	session.add_all(set_items)
+	await session.commit()
+
+	return f"Сет '{set_name}' успешно добавлен с предметами: {item_1_name} x{item_1_amount}" + (
+		f", {item_2_name} x{item_2_amount}" if item_2_name else "")

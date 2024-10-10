@@ -7,7 +7,8 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from database import is_transaction_processed, save_transaction, Transaction, Item, async_session
-from utils import parse_message, get_analytics, get_items_report, get_recent_transactions, format_recent_transactions
+from utils import parse_message, get_analytics, get_items_report, get_recent_transactions, format_recent_transactions, \
+	add_set_command
 
 # URL для отправки данных в сторонний сервис
 SERVICE_API_URL = f"{os.getenv('WEB_API_URL')}/api/{os.getenv('WEB_API_TOKEN')}"
@@ -97,6 +98,12 @@ async def send_analytics(message: Message):
 			f"Транзакций: {analytics['total_transactions']}\n"
 			f"Потрачено: {analytics['total_spent']} RUB"
 		)
+
+
+async def add_set_handler(message: Message):
+	async with async_session() as session:
+		response = await add_set_command(session, message.text)
+		await message.answer(response)
 
 
 async def recent_transactions_handler(message: Message):
