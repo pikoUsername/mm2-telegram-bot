@@ -1,3 +1,5 @@
+from typing import Callable
+
 from aiogram.filters import Command
 from dotenv import load_dotenv
 
@@ -10,7 +12,8 @@ import os
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, BotCommand
 from database import async_session, create_tables
-from handlers import handle_message, send_analytics, send_items_report, recent_transactions_handler, add_set_handler
+from handlers import handle_message, send_analytics, send_items_report, recent_transactions_handler, add_set_handler, \
+	set_lists
 
 # Логирование
 logging.basicConfig(level=logging.INFO)
@@ -46,22 +49,28 @@ async def main():
 
 	logger.info(f"Setup for {CHAT_ID} chat")
 
-	async def _temp_handle_message(msg: Message):
-		return await handle_message(msg, async_session)
+	def wrapper(cb: Callable):
+		async def inner(msg: Message):
+			async with async_session() as session:
+				return await cb(msg, session)
+		return inner
 
 	# Регистрация хэндлера для текстовых сообщений
 	dp.message.register(send_analytics, Command('analytics'))
-	dp.message.register(send_items_report, Command('items_report'))
+	dp.message.register(wrapper(send_items_report), Command('items_report'))
 	dp.message.register(recent_transactions_handler, Command("recents"))
-	dp.message.register(add_set_handler, Command('add_set'))
-	dp.message.register(_temp_handle_message, F.text)
+	dp.message.register(wrapper(add_set_handler), Command('add_set'))
+	dp.message.register(wrapper(set_lists), Command('set_list'))
+	dp.message.register(wrapper(handle_message), F.text)
 
 	# Запуск поллинга
 	await bot.set_my_commands(
 		[
 			BotCommand(command="analytics", description="Получить аналитику"),
 			BotCommand(command="items_report", description="Получить аналитику по предметам"),
-			BotCommand(command="recents", description="Недавние транзакции, пример: /recents 0 10 ")
+			BotCommand(command="recents", description="Недавние транзакции, пример: /recents 0 10 "),
+			BotCommand(command="add_set", description="Добавление сетов в бота"),
+			BotCommand(command="set_list", description="Список сетов в боте, пример: /set_list 0 10 "),
 		]
 	)
 

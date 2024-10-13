@@ -6,9 +6,10 @@ import requests
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from database import is_transaction_processed, save_transaction, Transaction, Item, async_session
+from database import is_transaction_processed, save_transaction, Transaction, ItemEntity, async_session
+from schemas import Item
 from utils import parse_message, get_analytics, get_items_report, get_recent_transactions, format_recent_transactions, \
-	add_set_command
+	add_set_command, search_sets, get_all_sets
 
 # URL для отправки данных в сторонний сервис
 SERVICE_API_URL = f"{os.getenv('WEB_API_URL')}/api/{os.getenv('WEB_API_TOKEN')}"
@@ -34,7 +35,7 @@ def send_to_service(data):
 async def handle_message(message: Message, session: async_sessionmaker):
 	# Парсим сообщение
 	parsed_data = parse_message(message.text)
-	if len(parsed_data.items) == 0:
+	if not parsed_data:
 		logger.warning("Not found items in parsed message")
 		return
 	logger.info("Handling message")
@@ -51,7 +52,26 @@ async def handle_message(message: Message, session: async_sessionmaker):
 		return
 	logging.info(f"Processing new transaction ID: {transaction_id}")
 
-	# Отправляем данные в сторонний сервис
+	actual_items = []
+	async with async_session() as sess:
+		for item in parsed_data.items:
+
+			if item.name.endswith("set"):
+				sets = await search_sets(sess, item.name)
+				if not sets:
+					continue
+				items = [
+					Item(
+						name=i.name,
+						amount=i.amount,
+						unit_price=0,
+					) for i in sets.items
+				]
+				actual_items.extend(items)
+			else:
+				actual_items.append(item)
+	parsed_data.items = actual_items
+
 	result = send_to_service(dataclasses.asdict(parsed_data))
 	if not result:
 		await message.reply("Невозможно связаться с сервисом бота")
@@ -67,7 +87,7 @@ async def handle_message(message: Message, session: async_sessionmaker):
 
 	for item in parsed_data.items:
 		items.append(
-			Item(
+			ItemEntity(
 				transaction_id=transaction_id,
 				amount=item.amount,
 				item_name=item.name,
@@ -100,9 +120,62 @@ async def send_analytics(message: Message):
 		)
 
 
-async def add_set_handler(message: Message):
-	async with async_session() as session:
-		response = await add_set_command(session, message.text)
+async def set_lists(message: Message, session: async_sessionmaker):
+	# Получаем аргументы команды (если они есть)
+	args = message.text.split(" ")
+	args.remove(args[0])
+
+	try:
+		# Параметры по умолчанию
+		start = 0
+		limit = 10
+
+		if len(args) == 1:
+			# Если указан только лимит
+			limit = int(args[0])
+		elif len(args) == 2:
+			# Если указаны начальная позиция и лимит
+			start = int(args[0])
+			limit = int(args[1])
+
+		# Если указаны некорректные значения
+		if limit <= 0 or start < 0:
+			await message.answer("Ошибка: значения должны быть положительными числами.")
+			return
+
+	except ValueError:
+		# Если произошла ошибка при преобразовании аргументов
+		await message.answer("Ошибка: некорректный формат аргументов. Используйте /recents [start] [limit].")
+		return
+
+	async with session() as sus:
+		response = await get_all_sets(sus, start, limit)
+
+		text = "Все доступные сеты в боте:\n"
+		for i, s in enumerate(response):
+			_temp = f"{i + 1}: Сет с названием: '{s.set_name}' Предметы в сете:\n"
+			for item in s.items:
+				_temp += f"{item.item_name}: {item.amount}x\n"
+			text += _temp
+			text += "\n"
+
+		await message.answer(text)
+
+
+async def assign_alias(message: Message, session: async_sessionmaker):
+	async with session() as sus:
+		pass
+
+
+async def handle_get_aliases(message: Message, session: async_sessionmaker):
+	user_id = message.from_user.id
+	response = await get_aliases(user_id, session)
+	await message.answer(response)
+
+
+async def add_set_handler(message: Message, session: async_sessionmaker):
+	async with session() as sus:
+		response = await add_set_command(sus, message.text)
 		await message.answer(response)
 
 
@@ -146,9 +219,9 @@ async def recent_transactions_handler(message: Message):
 			await message.answer("Нет данных о последних транзакциях.")
 
 
-async def send_items_report(message: Message):
-	async with async_session() as session:
-		items_report = await get_items_report(session)
+async def send_items_report(message: Message, session: async_sessionmaker):
+	async with session() as sus:
+		items_report = await get_items_report(sus)
 
 		# Формирование сообщения
 		report_message = "Отчёт о предметах:\n"

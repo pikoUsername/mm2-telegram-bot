@@ -15,7 +15,7 @@ DATABASE_URL = "sqlite+aiosqlite:///transactions.db"
 Base = declarative_base()
 
 
-class Item(Base):
+class ItemEntity(Base):
     __tablename__ = "item_transaction"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -37,7 +37,7 @@ class Transaction(Base):
     roblox_name = Column(String)
     total_price = Column(Float)  # Общая стоимость
     # status = Column(String, default=TransactionStatus.sent, nullable=True)
-    items: Mapped[list[Item]] = relationship("Item")
+    items: Mapped[list[ItemEntity]] = relationship("ItemEntity", lazy="joined")
     timestamp = Column(DateTime, default=datetime.utcnow)  # Время транзакции
 
 
@@ -46,7 +46,7 @@ class Set(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     set_name = Column(String, unique=True, nullable=False)
-    items: Mapped[list["SetItem"]] = relationship("SetItem", back_populates="set")
+    items: Mapped[list["SetItem"]] = relationship("SetItem", lazy="joined")
 
 
 class SetItem(Base):
@@ -59,7 +59,7 @@ class SetItem(Base):
 
     set: Mapped["Set"] = relationship("Set", back_populates="items")
 
-
+# сделать алиасы
 # Инициализация движка базы данных
 engine = create_async_engine(DATABASE_URL, echo=False)
 # Инициализация сессий

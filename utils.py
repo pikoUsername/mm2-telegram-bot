@@ -1,12 +1,13 @@
 import logging
 import re
 from datetime import timedelta, datetime
+from typing import Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from database import Transaction, Item as ItemEntity, Set, SetItem
+from database import Transaction, ItemEntity as ItemEntity, Set, SetItem
 from schemas import ParsedMessageResult, Item
 
 
@@ -140,6 +141,12 @@ def parse_message(text: str) -> ParsedMessageResult | None:
 	)
 
 
+async def search_sets(session: AsyncSession, name: str) -> Set:
+	stmt = select(Set).where(Set.set_name == name)
+	result = await session.execute(stmt)
+	return result.scalar_one()
+
+
 async def add_set_command(session: AsyncSession, message: str) -> str:
 	# Регулярное выражение для парсинга команды
 	set_pattern = r"/add_set ([\w\s]+) \(([\w\s]+) x(\d+)\)(?:; \(([\w\s]+) x(\d+)\))*"
@@ -179,3 +186,9 @@ async def add_set_command(session: AsyncSession, message: str) -> str:
 
 	return f"Сет '{set_name}' успешно добавлен с предметами: {item_1_name} x{item_1_amount}" + (
 		f", {item_2_name} x{item_2_amount}" if item_2_name else "")
+
+
+async def get_all_sets(session: AsyncSession, start: int = 0, end: int = 10) -> Sequence[Set]:
+	stmt = select(Set).offset(start).limit(end)
+	result = await session.execute(stmt)
+	return result.scalars().unique().all()
