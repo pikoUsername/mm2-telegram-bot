@@ -1,6 +1,6 @@
 
 import pytest
-from utils import parse_message
+from formatters import parse_message
 
 # Пример корректного сообщения для парсинга
 valid_message = """
