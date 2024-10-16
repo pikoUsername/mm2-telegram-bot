@@ -29,19 +29,22 @@ async def get_all_sets(session: AsyncSession, start: int = 0, end: int = 10) -> 
 
 async def add_set_command(session: AsyncSession, message: str) -> str:
     # Регулярное выражение для парсинга команды
-    set_pattern = r"/add_set ([\w\s]+) \(([\w\s]+) x(\d+)\)(?:; \(([\w\s]+) x(\d+)\))*"
+    set_pattern = r'/add_set\s"([^"]+)"\s((?:".+?\sx\d+",?\s*)+)'
     match = re.match(set_pattern, message)
 
     if not match:
-        return "Неверный формат команды. Пример: /add_set Blue set (Red seer x1); (Fire fox x2)"
+        return ('Неверный формат команды. Пример: '
+                '/add_set "Anger set" "Red seer x1", "Red anger x2", "Anger from the heaven x2"')
 
-    set_name = match.group(1)
-    item_1_name = match.group(2)
-    item_1_amount = int(match.group(3))
+    set_name = match.group(1)  # Название сета
+    items_string = match.group(2)  # Строка с предметами
 
-    # Проверяем, есть ли второй предмет (он необязателен)
-    item_2_name = match.group(4) if match.group(4) else None
-    item_2_amount = int(match.group(5)) if match.group(5) else None
+    # Разделяем предметы
+    items_pattern = r'"([^"]+)\sx(\d+)"'
+    items_matches = re.findall(items_pattern, items_string)
+
+    if not items_matches:
+        return 'Неверный формат предметов. Пример: "Red seer x1", "Red anger x2", "Anger from the heaven x2"'
 
     # Проверка: существует ли сет с таким названием
     existing_set = await session.execute(select(Set).where(Set.set_name == set_name))
@@ -53,25 +56,37 @@ async def add_set_command(session: AsyncSession, message: str) -> str:
     # Создаем новый сет
     new_set = Set(set_name=set_name)
 
-    # Добавляем предметы в сет
-    set_items = [SetItem(item_name=item_1_name, amount=item_1_amount, set=new_set)]
+    # Создаем список SetItem для всех предметов
+    set_items = []
+    for item_name, amount in items_matches:
+        set_items.append(SetItem(item_name=item_name, amount=int(amount), set=new_set))
 
-    if item_2_name:
-        set_items.append(SetItem(item_name=item_2_name, amount=item_2_amount, set=new_set))
+    await add_set(session, new_set, set_items)
+    # Формируем строку результата
+    items_summary = ', '.join([f'{item_name} x{amount}' for item_name, amount in items_matches])
 
-    # Добавляем сет и его предметы в базу
-    session.add(new_set)
-    session.add_all(set_items)
+    return f"Сет '{set_name}' успешно добавлен с предметами: {items_summary}"
+
+
+async def add_set(session: AsyncSession, set: Set, items: list[ItemEntity]):
+    for item in items:
+        session.add(item)
+    session.add(set)
     await session.commit()
-
-    return f"Сет '{set_name}' успешно добавлен с предметами: {item_1_name} x{item_1_amount}" + (
-        f", {item_2_name} x{item_2_amount}" if item_2_name else "")
+    await session.refresh(set)
 
 
 async def search_sets(session: AsyncSession, name: str) -> Set | None:
     stmt = select(Set).where(Set.set_name == name)
     result = await session.execute(stmt)
-    return result.scalar_one()
+    return result.unique().scalar_one()
+
+
+async def change_set(session: AsyncSession, set: Set) -> None:
+    for item in set.items:
+        session.add(item)
+    await session.merge(set)
+    await session.commit()
 
 
 async def find_set_by_name(session: AsyncSession, set_name: str) -> Set | None:
@@ -168,12 +183,23 @@ async def get_alias(session: AsyncSession, origin_name: str) -> Alias | None:
     return existing_alias
 
 
+async def change_alias(session: AsyncSession, alias: Alias) -> None:
+    await session.merge(alias)
+    await session.commit()
+
+
 async def add_alias(session: AsyncSession, alias: Alias) -> int:
     session.add(alias)
     await session.commit()
     await session.refresh(alias)
 
     return alias.id
+
+
+async def add_aliases(session: AsyncSession, aliases: list[Alias]):
+    for alias in aliases:
+        session.add(alias)
+    await session.commit()
 
 
 async def remove_alias(session: AsyncSession, alias_name: str) -> int | None:

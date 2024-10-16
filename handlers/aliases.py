@@ -1,3 +1,4 @@
+import json
 import re
 
 from aiogram import Router
@@ -6,7 +7,7 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Alias
-from db.repos import get_alias, add_alias, get_aliases, remove_alias
+from db.repos import get_alias, add_alias, get_aliases, remove_alias, add_aliases, change_alias
 from formatters import format_aliases
 import logging
 
@@ -21,22 +22,46 @@ router = Router(name="Alias router")
 @router.message(Command('add_alias'))
 async def assign_alias(message: Message, session: AsyncSession):
 	"""Сделать псевдоним, пример: /add_alias "Rev. seer" "Revolver of seer" """
-	match = quotes_regex.match(message.text)
-	if not match:
-		return await message.reply('Не правильный формат команды, пример: /add_alias "Rev. seer" "Revolver of seer"')
+	if message.document:
+		document = message.document
+		file = await message.bot.download(document)
 
-	origin_name = match.group(1)
-	alias_name = match.group(2)
+		try:
+			json_data = json.load(file)
+			aliases: list[Alias] = []
 
-	existing_alias = await get_alias(session, origin_name)
+			for key, value in json_data.items():
+				if not isinstance(value, str):
+					return await message.answer("Ошибка: неверный формат JSON")
+				if alias := await get_alias(session, key):
+					alias.alias_name = value
+					await change_alias(session, alias)
+					continue
+				aliases.append(Alias(
+					origin_name=key,
+					alias_name=value,
+				))
 
-	if existing_alias:
-		return await message.answer(f"Такой псевдоним уже существует.")
+			await add_aliases(session, aliases)
+		except json.JSONDecodeError:
+			await message.answer("Ошибка: неверный формат JSON.")
+	else:
+		match = quotes_regex.match(message.text)
+		if not match:
+			return await message.reply('Не правильный формат команды, пример: /add_alias "Rev. seer" "Revolver of seer"')
 
-	# Если алиас не существует, создаем новый
-	new_alias = Alias(origin_name=origin_name, alias_name=alias_name)
-	await add_alias(session, new_alias)
-	return await message.answer(f"Псевдоним '{alias_name}' был успешно добавлен для имени: '{origin_name}'.")
+		origin_name = match.group(1)
+		alias_name = match.group(2)
+
+		existing_alias = await get_alias(session, origin_name)
+
+		if existing_alias:
+			return await message.answer(f"Такой псевдоним уже существует.")
+
+		# Если алиас не существует, создаем новый
+		new_alias = Alias(origin_name=origin_name, alias_name=alias_name)
+		await add_alias(session, new_alias)
+		return await message.answer(f"Псевдоним '{alias_name}' был успешно добавлен для имени: '{origin_name}'.")
 
 
 @router.message(Command('aliases'))

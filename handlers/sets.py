@@ -1,9 +1,12 @@
+import json
+
 from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.repos import get_all_sets, add_set_command
+from db.models import Set, SetItem
+from db.repos import get_all_sets, add_set_command, add_set, search_sets, change_set
 
 import logging
 
@@ -59,6 +62,43 @@ async def set_lists(message: Message, session: AsyncSession):
 
 @router.message(Command('add_set'))
 async def add_set_handler(message: Message, session: AsyncSession):
-	"""Добавление сетов в бота"""
-	response = await add_set_command(session, message.text)
-	await message.answer(response)
+	"""Добавление сетов в бд через аргументы или JSON"""
+
+	# Если в сообщении есть прикрепленный файл, пытаемся обработать его как JSON
+	if message.document:
+		# Скачиваем файл
+		document = message.document
+		file = await message.bot.download(document)
+
+		try:
+			# Чтение и парсинг содержимого файла
+			json_data = json.load(file)
+
+			# Обрабатываем каждый сет из JSON
+			for set_name, items in json_data.items():
+
+				# Формируем список объектов SetItem для каждого предмета
+				set_items = [
+					SetItem(item_name=item['name'], amount=item['amount'])
+					for item in items
+				]
+
+				if set := await search_sets(session, set_name):
+					set.items = set_items
+					await change_set(session, set)
+					logger.info("Found set in db, changed items")
+					continue
+
+				# Создаем объект Set и сохраняем в БД
+				new_set = Set(set_name=set_name, items=set_items)
+				await add_set(session, new_set, set_items)
+
+			# Отправляем сообщение об успешном добавлении всех сетов
+			await message.answer("Все сеты успешно добавлены из файла.")
+		except json.JSONDecodeError:
+			await message.answer("Ошибка: неверный формат JSON.")
+		except Exception as e:
+			await message.answer(f"Произошла ошибка при обработке файла: {str(e)}")
+	else:
+		response = await add_set_command(session, message.text)
+		await message.answer(response)
